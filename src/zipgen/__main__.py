@@ -10,8 +10,8 @@ from .constant import *
 
 @dataclass
 class Arguments(Namespace):
+    dest: str = ""
     src: Iterable[str] = field(default_factory=lambda: [])
-    dest: str = "dest.zip"
     path: str = "/"
     comment: str = ""
     buf: int = 65536
@@ -40,10 +40,10 @@ def main(args: Arguments) -> None:
 
 if __name__ == "__main__":
     parser = ArgumentParser(prog="zipgen")
+    parser.add_argument("dest", type=str,
+                        help="Destination file.")
     parser.add_argument("src", metavar="N src file", type=str, nargs="+",
                         help="Source files.")
-    parser.add_argument("--dest", type=str, default=Arguments.dest,
-                        help="Destination file.")
     parser.add_argument("--path", type=str, default=Arguments.path,
                         help="Internal dest folder in zip.")
     parser.add_argument("--comment", type=str, default=Arguments.comment,
