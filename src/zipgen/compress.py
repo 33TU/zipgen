@@ -1,4 +1,4 @@
-from asyncio import get_running_loop
+from asyncio import get_running_loop, StreamReader
 from io import BufferedIOBase
 from zlib import compressobj, crc32
 from bz2 import BZ2Compressor
@@ -17,8 +17,9 @@ __all__ = (
     "get_compressor",
     "get_extract_version",
     "CompressorContext",
-    "compress_gen",
-    "compress_gen_async",
+    "compress_io_gen",
+    "compress_io_gen_async",
+    "compress_stream_gen_async",
 )
 
 
@@ -153,8 +154,9 @@ class CompressorContext(object):
         self.compressed_size += len(buf)
 
 
-def compress_gen(compressor: CompressorBase, context: CompressorContext, io: BufferedIOBase, buffer: Union[memoryview, bytearray]) -> Generator[bytes, None, None]:
-    """Compresses, updates context and yields compressed data."""
+def compress_io_gen(compressor: CompressorBase, context: CompressorContext, io: BufferedIOBase, buffer: Union[memoryview, bytearray]) -> Generator[bytes, None, None]:
+    """Compresses, updates context and yields compressed io data."""
+    # Read all data
     while True:
         count = io.readinto(buffer)
         if count <= 0:
@@ -175,10 +177,10 @@ def compress_gen(compressor: CompressorBase, context: CompressorContext, io: Buf
         yield buf
 
 
-async def compress_gen_async(compressor: CompressorBase, context: CompressorContext, io: BufferedIOBase, buffer: Union[memoryview, bytearray]) -> AsyncGenerator[bytes, None]:
-    """Compresses, updates context and yields compressed asynchronously."""
+async def compress_io_gen_async(compressor: CompressorBase, context: CompressorContext, io: BufferedIOBase, buffer: Union[memoryview, bytearray]) -> AsyncGenerator[bytes, None]:
+    """Compresses, updates context and yields compressed io data asynchronously."""
     loop = get_running_loop()
-    gen = compress_gen(compressor, context, io, buffer)
+    gen = compress_io_gen(compressor, context, io, buffer)
 
     def try_get_next() -> Optional[bytes]:
         try:
@@ -190,4 +192,26 @@ async def compress_gen_async(compressor: CompressorBase, context: CompressorCont
         buf = await loop.run_in_executor(None, try_get_next)
         if buf is None:
             break
+        yield buf
+
+
+async def compress_stream_gen_async(compressor: CompressorBase, context: CompressorContext, reader: StreamReader, buf_size: int) -> AsyncGenerator[bytes, None]:
+    """Compresses, updates context and yields compressed stream data asynchronously."""
+    # Read all data
+    while True:
+        rbuf = await reader.read(buf_size)
+        if len(rbuf) == 0:
+            break
+
+        cbuf = compressor.compress(rbuf)
+        context.update(rbuf, cbuf)
+
+        yield cbuf
+
+    # Flush
+    buf = compressor.flush()
+
+    # Yield remaining
+    if len(buf) != 0:
+        context.flush(buf)
         yield buf

@@ -70,7 +70,7 @@ class TestSync(TestCase):
         io = BytesIO()
 
         # Walk tests files
-        for buf in builder.walk("tests/", "/"):
+        for buf in builder.walk("./", "/"):
             io.write(buf)
 
         # End

@@ -1,3 +1,4 @@
+from asyncio import StreamReader
 from dataclasses import dataclass
 from io import BufferedIOBase, BufferedReader
 from os import name, stat, walk
@@ -25,7 +26,6 @@ def version_made_by(name: str) -> int:
 @dataclass
 class ZipContext(object):
     path: bytes
-    io: BufferedIOBase
     compression: int
     compressor: CompressorBase
     compressor_ctx: CompressorContext
@@ -60,7 +60,7 @@ class ZipBuilder(object):
         """Clear context."""
         self.ctx = None
 
-    def _new_file_ctx(self, path: Union[bytes, str], io: BufferedIOBase, utc_time: Optional[float], compression: int, comment: Union[bytes, str]) -> ZipContext:
+    def _new_file_ctx(self, path: Union[bytes, str], io: Optional[BufferedIOBase], utc_time: Optional[float], compression: int, comment: Union[bytes, str]) -> ZipContext:
         """Adds file and returns generator which yields LocalFile header and data."""
         if self.ctx is not None:
             raise ValueError("File operation pending.")
@@ -74,7 +74,7 @@ class ZipBuilder(object):
 
         # Try getting file stat
         file_attr: Tuple[int, Optional[float]]
-        if isinstance(io, BufferedReader):
+        if io is not None and isinstance(io, BufferedReader):
             file_stat = stat(io.fileno())
             file_attr = ((file_stat.st_mode & 0xFFFF)
                          << 16, file_stat.st_mtime,)
@@ -96,7 +96,6 @@ class ZipBuilder(object):
 
         return ZipContext(
             path=path,
-            io=io,
             compression=compression,
             compressor=get_compressor(compression),
             compressor_ctx=CompressorContext(),
@@ -250,7 +249,7 @@ class ZipBuilder(object):
             try:
                 yield self._write_local_file()
 
-                for buf in compress_gen(self.ctx.compressor, self.ctx.compressor_ctx, self.ctx.io, self.buffer):
+                for buf in compress_io_gen(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
                     yield self._write(buf)
 
                 yield self._write_data_descriptor()
@@ -270,13 +269,32 @@ class ZipBuilder(object):
             try:
                 yield self._write_local_file()
 
-                async for buf in compress_gen_async(self.ctx.compressor, self.ctx.compressor_ctx, self.ctx.io, self.buffer):
+                async for buf in compress_io_gen_async(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
                     yield self._write(buf)
 
                 yield self._write_data_descriptor()
             finally:
                 self._set_header()
                 self._clear_ctx()
+
+    async def add_stream_async(self, path: Union[bytes, str], reader: StreamReader, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="", buf_size=4096) -> AsyncGenerator[bytes, None]:
+        """Adds stream and returns async Generator object."""
+        # Create file context.
+        self.ctx = self._new_file_ctx(
+            path, None, utc_time, compression, comment
+        )
+
+        # Yield file's header and content.
+        try:
+            yield self._write_local_file()
+
+            async for buf in compress_stream_gen_async(self.ctx.compressor, self.ctx.compressor_ctx, reader, buf_size):
+                yield self._write(buf)
+
+            yield self._write_data_descriptor()
+        finally:
+            self._set_header()
+            self._clear_ctx()
 
     def add_folder(self, path: Union[bytes, str], utc_time: Optional[float] = None, comment="") -> bytes:
         """Adds folder and returns Generator object."""

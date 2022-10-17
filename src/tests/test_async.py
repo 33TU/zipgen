@@ -1,33 +1,26 @@
+from asyncio import subprocess
 from unittest import IsolatedAsyncioTestCase, main
 from io import BytesIO
 from zipfile import ZipFile
-from zipgen import ZipBuilder, COMPRESSION_STORED, COMPRESSION_DEFLATED, COMPRESSION_BZIP2, COMPRESSION_LZMA
+from zipgen import ZipBuilder
 
 
 class TestSync(IsolatedAsyncioTestCase):
-    async def test_add_file_async(self) -> None:
-        """Tests file creation."""
+    async def test_stream_async(self) -> None:
+        """Test stream generator."""
         builder = ZipBuilder()
         io = BytesIO()
+        args = b"hello world"
 
-        # Contents
-        content1 = b"This is COMPRESSION_STORED compressed. " * 128
-        content2 = b"This is COMPRESSION_DEFLATED compressed. " * 128
-        content3 = b"This is COMPRESSION_BZIP2 compressed. " * 128
-        content4 = b"This is COMPRESSION_LZMA compressed. " * 128
+        # Read process content to zip
+        proc = await subprocess.create_subprocess_exec(
+            "echo", args,
+            stdout=subprocess.PIPE,
+        )
 
-        # Add four files with different compressions
-        async for buf in builder.add_file_async("file1.txt", BytesIO(content1), compression=COMPRESSION_STORED):
-            io.write(buf)
-
-        async for buf in builder.add_file_async("file2.txt", BytesIO(content2), compression=COMPRESSION_DEFLATED):
-            io.write(buf)
-
-        async for buf in builder.add_file_async("file3.txt", BytesIO(content3), compression=COMPRESSION_BZIP2):
-            io.write(buf)
-
-        async for buf in builder.add_file_async("file4.txt", BytesIO(content4), compression=COMPRESSION_LZMA):
-            io.write(buf)
+        if proc.stdout is not None:
+            async for buf in builder.add_stream_async("echo.txt", proc.stdout):
+                io.write(buf)
 
         # End
         io.write(builder.end())
@@ -36,13 +29,11 @@ class TestSync(IsolatedAsyncioTestCase):
         with ZipFile(io, "r") as file:
             self.assertEqual(
                 file.namelist(),
-                ["file1.txt", "file2.txt", "file3.txt", "file4.txt"],
+                ["echo.txt"],
             )
 
-            self.assertEqual(file.read("file1.txt"), content1)
-            self.assertEqual(file.read("file2.txt"), content2)
-            self.assertEqual(file.read("file3.txt"), content3)
-            self.assertEqual(file.read("file4.txt"), content4)
+            for name in file.namelist():
+                self.assertTrue(file.read(name).startswith(args))
 
     async def test_walk_async(self) -> None:
         """Test walk generator."""
@@ -50,7 +41,7 @@ class TestSync(IsolatedAsyncioTestCase):
         io = BytesIO()
 
         # Walk tests files
-        async for buf in builder.walk_async("tests/", "/"):
+        async for buf in builder.walk_async("./", "/"):
             io.write(buf)
 
         # End
