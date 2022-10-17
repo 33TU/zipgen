@@ -48,7 +48,7 @@ class ZipBuilder(object):
         "offset",
     )
 
-    def __init__(self, buffer_size=16384, version_made=version_made_by(name)) -> None:
+    def __init__(self, buffer_size=65536, version_made=version_made_by(name)) -> None:
         self.buffer = memoryview(bytearray(buffer_size))
         self.version_made = version_made
         self.version_extract = CREATE_DEFAULT
@@ -74,7 +74,7 @@ class ZipBuilder(object):
 
         # Try getting file stat
         file_attr: Tuple[int, Optional[float]]
-        if io is not None and isinstance(io, BufferedReader):
+        if isinstance(io, BufferedReader):
             file_stat = stat(io.fileno())
             file_attr = ((file_stat.st_mode & 0xFFFF)
                          << 16, file_stat.st_mtime,)
@@ -347,7 +347,7 @@ class ZipBuilder(object):
 
         return buf
 
-    def walk(self, src: AnyStr, dist: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="",
+    def walk(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="",
              no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> Generator[bytes, None, None]:
         """Generates the file headers and contents from src directory."""
         for curdir, _, files in walk(src, followlinks=False):
@@ -356,7 +356,7 @@ class ZipBuilder(object):
 
             # Create folder
             if len(files) == 0:
-                path = norm_path(join(dist, rpath), True)
+                path = norm_path(join(dest, rpath), True)
                 yield self.add_folder(path)
 
             # Write files
@@ -367,14 +367,14 @@ class ZipBuilder(object):
 
                 # Join path and open file.
                 fpath = join(curdir, file)
-                path = norm_path(join(dist, rpath, file), False)
+                path = norm_path(join(dest, rpath, file), False)
                 fs = open(fpath, "rb")
 
                 # Yield file contents
                 for buf in self.add_file(path, fs, utc_time, file_compression, comment):
                     yield buf
 
-    async def walk_async(self, src: AnyStr, dist: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="",
+    async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="",
                          no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> AsyncGenerator[bytes, None]:
         """Generates the file headers and contents from src directory asyncnorously."""
         for curdir, _, files in walk(src, followlinks=False):
@@ -383,7 +383,7 @@ class ZipBuilder(object):
 
             # Create folder
             if len(files) == 0:
-                path = norm_path(join(dist, rpath), True)
+                path = norm_path(join(dest, rpath), True)
                 yield self.add_folder(path)
 
             # Write files
@@ -394,7 +394,7 @@ class ZipBuilder(object):
 
                 # Join path and open file.
                 fpath = join(curdir, file)
-                path = norm_path(join(dist, rpath, file), False)
+                path = norm_path(join(dest, rpath, file), False)
                 fs = open(fpath, "rb")
 
                 # Yield file contents

@@ -165,7 +165,6 @@ def compress_io_gen(compressor: CompressorBase, context: CompressorContext, io: 
         rbuf = buffer[:count]
         cbuf = compressor.compress(rbuf)
         context.update(rbuf, cbuf)
-
         yield cbuf
 
     # Flush
@@ -205,7 +204,6 @@ async def compress_stream_gen_async(compressor: CompressorBase, context: Compres
 
         cbuf = compressor.compress(rbuf)
         context.update(rbuf, cbuf)
-
         yield cbuf
 
     # Flush
