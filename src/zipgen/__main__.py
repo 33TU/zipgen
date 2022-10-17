@@ -19,6 +19,7 @@ class Arguments(Namespace):
 
 
 def main(args: Arguments) -> None:
+    """Builds zip file with given arguments."""
     builder = ZipBuilder(args.buf)
 
     with open(args.dest, "wb+") as file:
