@@ -1,0 +1,18 @@
+[project]
+name = "zipgen"
+version = "0.0.1"
+authors = [
+  { name="33TU", email="eetu@skid.tools" },
+]
+description = "A zip file generator."
+
+
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/33TU/zipgen"
