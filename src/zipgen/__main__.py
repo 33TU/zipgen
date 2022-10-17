@@ -19,7 +19,7 @@ class Arguments(Namespace):
 
 
 def main(args: Arguments) -> None:
-    builder = ZipBuilder()
+    builder = ZipBuilder(args.buf)
 
     with open(args.dest, "wb+") as file:
         # Write srcs
