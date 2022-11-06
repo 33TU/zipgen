@@ -19,6 +19,10 @@ The command supports adding several files or folders at once recursively.
 Compression method can be set with `--comp` option and comment can be set with
 `--comment`.
 
+# Install
+
+`python -m pip install zipgen`
+
 ---
 
 ## Sync example

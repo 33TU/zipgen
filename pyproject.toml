@@ -1,10 +1,13 @@
 [project]
 name = "zipgen"
-version = "0.1.1"
+version = "0.1.1.2"
 authors = [
   { name="33TU", email="eetu@skid.tools" },
 ]
 description = "A zip file generator."
+
+license = {file = "LICENSE"}
+readme = "README.md"
 
 
 requires-python = ">=3.7"
