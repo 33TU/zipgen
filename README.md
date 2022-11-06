@@ -42,7 +42,7 @@ def main() -> None:
             file.write(buf)
 
         # Add BytesIO
-        for buf in builder.add_file("buffer.txt", io.BytesIO(b"Hell world from BytesIO!"), compression=zipgen.COMPRESSION_BZIP2):
+        for buf in builder.add_file("buffer.txt", io.BytesIO(b"Hello world from BytesIO!"), compression=zipgen.COMPRESSION_BZIP2):
             file.write(buf)
 
         # Walk src
