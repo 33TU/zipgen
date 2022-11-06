@@ -1,9 +1,9 @@
 from asyncio import StreamReader
 from dataclasses import dataclass
-from io import BufferedIOBase, BufferedReader
+from io import BufferedIOBase, RawIOBase, UnsupportedOperation
 from os import name, stat, walk
 from os.path import relpath, join, splitext
-from typing import AnyStr, Dict, AsyncGenerator, Generator, Tuple, Union, Optional
+from typing import AnyStr, Dict, AsyncGenerator, Generator, Tuple, Union, Optional, cast
 
 from .compress import *
 from .constant import *
@@ -12,13 +12,13 @@ from .pack import *
 
 
 __all__ = (
-    "version_made_by",
+    "get_version_system",
     "ZipContext",
     "ZipBuilder",
 )
 
 
-def version_made_by(name: str) -> int:
+def get_version_system(name: str) -> int:
     """Returns version integer for current OS:"""
     return MADE_BY_WINDOWS if name == "nt" else MADE_BY_UNIX
 
@@ -41,16 +41,16 @@ class ZipContext(object):
 class ZipBuilder(object):
     __slots__ = (
         "buffer",
-        "version_made",
+        "version_system",
         "version_extract",
         "headers",
         "ctx",
         "offset",
     )
 
-    def __init__(self, buffer_size=65536, version_made=version_made_by(name)) -> None:
+    def __init__(self, buffer_size=65536, system=get_version_system(name)) -> None:
         self.buffer = memoryview(bytearray(buffer_size))
-        self.version_made = version_made
+        self.version_system = system
         self.version_extract = CREATE_DEFAULT
         self.headers: Dict[bytes, bytes] = {}
         self.ctx: Optional[ZipContext] = None
@@ -60,26 +60,40 @@ class ZipBuilder(object):
         """Clear context."""
         self.ctx = None
 
-    def _new_file_ctx(self, path: Union[bytes, str], io: Optional[BufferedIOBase], utc_time: Optional[float], compression: int, comment: Union[bytes, str]) -> ZipContext:
+    def _new_file_ctx(self, path: AnyStr, io: Optional[Union[BufferedIOBase, RawIOBase]], utc_time: Optional[float], compression: int, comment: AnyStr) -> ZipContext:
         """Adds file and returns generator which yields LocalFile header and data."""
         if self.ctx is not None:
             raise ValueError("File operation pending.")
 
-        path = norm_path(path, False)
-        if path in self.headers:
+        # Path
+        path_bytes = norm_path(path, False)
+        if path_bytes in self.headers:
             raise ValueError("Path already in headers.")
 
-        if isinstance(comment, str):
-            comment = comment.encode("utf8")
-
-        # Try getting file stat
-        file_attr: Tuple[int, Optional[float]]
-        if isinstance(io, BufferedReader):
-            file_stat = stat(io.fileno())
-            file_attr = ((file_stat.st_mode & 0xFFFF)
-                         << 16, file_stat.st_mtime,)
+        # Comment
+        if comment is None:
+            comment_bytes = b""
+        elif isinstance(comment, str):
+            comment_bytes = comment.encode("utf8")
+        elif isinstance(comment, (bytes, bytearray,)):
+            comment_bytes = comment
         else:
-            file_attr = (DEFAULT_EXTERNAL_ATTR, None,)
+            raise ValueError("Comment has to be bytes or str.")
+
+        # Set file attr default
+        file_attr: Tuple[int, Optional[float]]
+        file_attr = (DEFAULT_EXTERNAL_ATTR, None,)
+
+        # Try file attr from file
+        if io is not None:
+            try:
+                file_stat = stat(io.fileno())
+                file_attr = (
+                    (file_stat.st_mode & 0xFFFF) << 16,  # File mode
+                    file_stat.st_mtime,  # File modified time
+                )
+            except UnsupportedOperation:
+                pass
 
         # External attr
         external_attr = file_attr[0]
@@ -95,7 +109,7 @@ class ZipBuilder(object):
             self.version_extract = extract_version
 
         return ZipContext(
-            path=path,
+            path=path_bytes,
             compression=compression,
             compressor=get_compressor(compression),
             compressor_ctx=CompressorContext(),
@@ -104,7 +118,7 @@ class ZipBuilder(object):
             date=date,
             version=extract_version,
             external_attributes=external_attr,
-            comment=comment,
+            comment=comment_bytes,
             relative_offset=self.offset,
         )
 
@@ -166,7 +180,8 @@ class ZipBuilder(object):
                 # Record
                 buf += pack_header(HEADER_CENTRAL_DIRECTORY_RECORD64, CentralDirectoryRecord64(
                     SIZE_CENTRAL_DIRECTORY_RECORD64_REMAINING,
-                    self.version_made,
+                    self.version_extract,
+                    self.version_system,
                     self.version_extract,
                     0,  # Disk number
                     0,  # Disk start
@@ -219,7 +234,8 @@ class ZipBuilder(object):
 
         # Store header bytes.
         self.headers[self.ctx.path] = pack_header_with_data(HEADER_CENTRAL_DIRECTORY, CentralDirectory(
-            self.version_made,
+            self.ctx.version,
+            self.version_system,
             self.ctx.version,
             self.ctx.flag,
             self.ctx.compression,
@@ -237,7 +253,7 @@ class ZipBuilder(object):
             0xFFFFFFFF if use_zip64 else self.ctx.relative_offset,
         ), self.ctx.path, extra, self.ctx.comment)
 
-    def add_file(self, path: Union[bytes, str], io: BufferedIOBase, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
+    def add_file(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
         """Adds file and returns Generator object."""
         with io:
             # Create file context.
@@ -257,7 +273,7 @@ class ZipBuilder(object):
                 self._set_header()
                 self._clear_ctx()
 
-    async def add_file_async(self, path: Union[bytes, str], io: BufferedIOBase, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> AsyncGenerator[bytes, None]:
+    async def add_file_async(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> AsyncGenerator[bytes, None]:
         """Adds file and returns async Generator object."""
         with io:
             # Create file context.
@@ -277,7 +293,7 @@ class ZipBuilder(object):
                 self._set_header()
                 self._clear_ctx()
 
-    async def add_stream_async(self, path: Union[bytes, str], reader: StreamReader, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="", buf_size=4096) -> AsyncGenerator[bytes, None]:
+    async def add_stream_async(self, path: AnyStr, reader: StreamReader, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="", buf_size=4096) -> AsyncGenerator[bytes, None]:
         """Adds stream and returns async Generator object."""
         # Create file context.
         self.ctx = self._new_file_ctx(
@@ -296,16 +312,22 @@ class ZipBuilder(object):
             self._set_header()
             self._clear_ctx()
 
-    def add_folder(self, path: Union[bytes, str], utc_time: Optional[float] = None, comment="") -> bytes:
+    def add_folder(self, path: AnyStr, utc_time: Optional[float] = None, comment: AnyStr = None) -> bytes:
         """Adds folder and returns Generator object."""
         if self.ctx is not None:
             raise ValueError("File operation pending.")
 
-        if isinstance(comment, str):
-            comment = comment.encode("utf8")
+        if comment is None:
+            comment_bytes = b""
+        elif isinstance(comment, str):
+            comment_bytes = comment.encode("utf8")
+        elif isinstance(comment, (bytes, bytearray,)):
+            comment_bytes = comment
+        else:
+            raise ValueError("Comment has to be bytes or str.")
 
-        path = norm_path(path, True)
-        if path in self.headers:
+        path_bytes = norm_path(path, True)
+        if path_bytes in self.headers:
             raise ValueError("Path already in headers.")
 
         offset = self.offset
@@ -321,13 +343,14 @@ class ZipBuilder(object):
             0,  # Crc32
             0,  # Compressed size
             0,  # Uncompressed size
-            len(path),
+            len(path_bytes),
             0,  # Len extra
-        ), path))
+        ), path_bytes))
 
         # CentralDirectory
-        self.headers[path] = pack_header_with_data(HEADER_CENTRAL_DIRECTORY, CentralDirectory(
-            self.version_made,
+        self.headers[path_bytes] = pack_header_with_data(HEADER_CENTRAL_DIRECTORY, CentralDirectory(
+            self.version_extract,
+            self.version_system,
             self.version_extract,
             0,  # Flag
             0,  # Compression
@@ -336,18 +359,18 @@ class ZipBuilder(object):
             0,  # Crc32
             0,  # Compressed len
             0,  # Uncompressed len
-            len(path),
-            0,  # Len extra
-            len(comment),
+            len(path_bytes),
+            0,  # Extra len
+            len(comment_bytes),
             0,  # Disks tart
             0,  # Internal attr
-            0,  # Externall attr
+            DEFAULT_EXTERNAL_DIR_ATTR,  # External attr
             offset,
-        ), path, b"", comment,)
+        ), path_bytes, b"", comment_bytes,)
 
         return buf
 
-    def walk(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="",
+    def walk(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
              no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> Generator[bytes, None, None]:
         """Generates the file headers and contents from src directory."""
         for curdir, _, files in walk(src, followlinks=False):
@@ -368,13 +391,13 @@ class ZipBuilder(object):
                 # Join path and open file.
                 fpath = join(curdir, file)
                 path = norm_path(join(dest, rpath, file), False)
-                fs = open(fpath, "rb")
+                fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
 
                 # Yield file contents
                 for buf in self.add_file(path, fs, utc_time, file_compression, comment):
                     yield buf
 
-    async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="",
+    async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
                          no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> AsyncGenerator[bytes, None]:
         """Generates the file headers and contents from src directory asyncnorously."""
         for curdir, _, files in walk(src, followlinks=False):
@@ -395,15 +418,21 @@ class ZipBuilder(object):
                 # Join path and open file.
                 fpath = join(curdir, file)
                 path = norm_path(join(dest, rpath, file), False)
-                fs = open(fpath, "rb")
+                fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
 
                 # Yield file contents
                 async for buf in self.add_file_async(path, fs, utc_time, file_compression, comment):
                     yield buf
 
-    def end(self, comment: Union[str, bytes] = "") -> bytes:
+    def end(self, comment: AnyStr = None) -> bytes:
         """Returns EOCD which contains headers for all added files."""
-        if isinstance(comment, str):
-            comment = comment.encode("utf8")
+        if comment is None:
+            comment_bytes = b""
+        elif isinstance(comment, str):
+            comment_bytes = comment.encode("utf8")
+        elif isinstance(comment, (bytes, bytearray,)):
+            comment_bytes = comment
+        else:
+            raise ValueError("Comment has to be bytes, bytearray or str.")
 
-        return self._write_end(comment)
+        return self._write_end(comment_bytes)

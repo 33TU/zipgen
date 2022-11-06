@@ -1,6 +1,6 @@
-from time import localtime, struct_time
+from time import localtime
 from os.path import normpath
-from typing import Tuple, Union, Optional
+from typing import Tuple, Union, Optional, AnyStr
 
 
 __all__ = (
@@ -18,16 +18,20 @@ def dos_time(utc_time: Optional[float] = None) -> Tuple[int, int]:
     return (time, date,)
 
 
-def norm_path(path: Union[str, bytes], folder: bool) -> bytes:
+def norm_path(path: AnyStr, folder: bool) -> bytes:
     """Converts path by normalizing it for a file or a folder. Path must be UTF-8 encoded bytes or str."""
     if isinstance(path, str):
-        path = path.encode("utf8")
+        path_bytes = path.encode("utf8")
+    elif isinstance(path, (bytes, bytearray,)):
+        path_bytes = path
+    else:
+        raise ValueError("Path has to be bytes or str.")
 
-    path = path.replace(b"\\", b"/")
-    path = normpath(path)
-    path = path.lstrip(b"/")
+    path_bytes = path_bytes.replace(b"\\", b"/")
+    path_bytes = normpath(path_bytes)
+    path_bytes = path_bytes.lstrip(b"/")
 
-    if folder and not path.endswith(b"/"):
-        path = path + b"/"
+    if folder and not path_bytes.endswith(b"/"):
+        path_bytes = path_bytes + b"/"
 
-    return path
+    return path_bytes

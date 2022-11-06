@@ -51,7 +51,8 @@ class DataDescriptor64(NamedTuple):
 
 
 class CentralDirectory(NamedTuple):
-    version_made: int
+    version_create: int
+    version_system: int
     version_extract: int
     flag: int
     compression: int
@@ -71,7 +72,8 @@ class CentralDirectory(NamedTuple):
 
 class CentralDirectoryRecord64(NamedTuple):
     size: int
-    version_made: int
+    version_create: int
+    version_system: int
     version_extract: int
     disk_number: int
     disk_start: int

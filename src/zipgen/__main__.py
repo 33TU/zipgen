@@ -1,4 +1,4 @@
-from sys import stderr
+from sys import stderr, exit
 from os.path import isdir
 from dataclasses import dataclass, field
 from argparse import ArgumentParser, Namespace
@@ -60,3 +60,4 @@ if __name__ == "__main__":
         main(args)
     except Exception as ex:
         print(str(ex), file=stderr)
+        exit(1)

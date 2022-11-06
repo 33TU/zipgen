@@ -1,5 +1,5 @@
 from asyncio import get_running_loop, StreamReader
-from io import BufferedIOBase
+from io import BufferedIOBase, RawIOBase
 from zlib import compressobj, crc32
 from bz2 import BZ2Compressor
 from lzma import LZMACompressor, FORMAT_RAW
@@ -154,12 +154,12 @@ class CompressorContext(object):
         self.compressed_size += len(buf)
 
 
-def compress_io_gen(compressor: CompressorBase, context: CompressorContext, io: BufferedIOBase, buffer: Union[memoryview, bytearray]) -> Generator[bytes, None, None]:
+def compress_io_gen(compressor: CompressorBase, context: CompressorContext, io: Union[BufferedIOBase, RawIOBase], buffer: Union[memoryview, bytearray]) -> Generator[bytes, None, None]:
     """Compresses, updates context and yields compressed io data."""
     # Read all data
     while True:
         count = io.readinto(buffer)
-        if count <= 0:
+        if count is None or count <= 0:
             break
 
         rbuf = buffer[:count]
@@ -176,7 +176,7 @@ def compress_io_gen(compressor: CompressorBase, context: CompressorContext, io: 
         yield buf
 
 
-async def compress_io_gen_async(compressor: CompressorBase, context: CompressorContext, io: BufferedIOBase, buffer: Union[memoryview, bytearray]) -> AsyncGenerator[bytes, None]:
+async def compress_io_gen_async(compressor: CompressorBase, context: CompressorContext, io: Union[BufferedIOBase, RawIOBase], buffer: Union[memoryview, bytearray]) -> AsyncGenerator[bytes, None]:
     """Compresses, updates context and yields compressed io data asynchronously."""
     loop = get_running_loop()
     gen = compress_io_gen(compressor, context, io, buffer)
