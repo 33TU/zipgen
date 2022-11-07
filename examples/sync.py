@@ -1,5 +1,6 @@
 import io
 import zipgen
+from typing import Generator
 
 
 def main() -> None:
@@ -8,15 +9,23 @@ def main() -> None:
 
     with open("dist_sync.zip", "wb+") as file:
         # Add file, default compression is COMPRESSION_STORED
-        for buf in builder.add_file("async.py", open("sync.py", "rb")):
+        for buf in builder.add_io("async.py", open("sync.py", "rb")):
             file.write(buf)
 
-        # Add BytesIO
-        for buf in builder.add_file("buffer.txt", io.BytesIO(b"Hello world from BytesIO!"), compression=zipgen.COMPRESSION_BZIP2):
+        # Add from BytesIO
+        for buf in builder.add_io("buffer.txt", io.BytesIO(b"Hello world from BytesIO!"), compression=zipgen.COMPRESSION_BZIP2):
             file.write(buf)
 
         # Walk src
         for buf in builder.walk("../src", "src-files-dist", compression=zipgen.COMPRESSION_DEFLATED):
+            file.write(buf)
+
+        # Add from Generator
+        def data_gen() -> Generator[bytes, None, None]:
+            for i in range(1024):
+                yield f"hello from generator {i}\n".encode()
+
+        for buf in builder.add_gen("generator.txt", data_gen(), compression=zipgen.COMPRESSION_LZMA):
             file.write(buf)
 
         # Add empty folders

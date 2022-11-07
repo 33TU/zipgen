@@ -30,7 +30,7 @@ def main(args: Arguments) -> None:
                     for buf in builder.walk(fname, args.path, compression=args.comp):
                         file.write(buf)
                 else:
-                    for buf in builder.add_file(fname, open(fname, "rb"), compression=args.comp):
+                    for buf in builder.add_io(fname, open(fname, "rb"), compression=args.comp):
                         file.write(buf)
             except Exception as ex:
                 print(str(ex), file=stderr)

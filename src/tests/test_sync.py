@@ -1,3 +1,4 @@
+from typing import Generator
 from unittest import TestCase, main
 from io import BytesIO
 from zipfile import ZipFile
@@ -17,16 +18,16 @@ class TestSync(TestCase):
         content4 = b"This is COMPRESSION_LZMA compressed. " * 128
 
         # Add four files with different compressions
-        for buf in builder.add_file("file1.txt", BytesIO(content1), compression=COMPRESSION_STORED):
+        for buf in builder.add_io("file1.txt", BytesIO(content1), compression=COMPRESSION_STORED):
             io.write(buf)
 
-        for buf in builder.add_file("file2.txt", BytesIO(content2), compression=COMPRESSION_DEFLATED):
+        for buf in builder.add_io("file2.txt", BytesIO(content2), compression=COMPRESSION_DEFLATED):
             io.write(buf)
 
-        for buf in builder.add_file("file3.txt", BytesIO(content3), compression=COMPRESSION_BZIP2):
+        for buf in builder.add_io("file3.txt", BytesIO(content3), compression=COMPRESSION_BZIP2):
             io.write(buf)
 
-        for buf in builder.add_file("file4.txt", BytesIO(content4), compression=COMPRESSION_LZMA):
+        for buf in builder.add_io("file4.txt", BytesIO(content4), compression=COMPRESSION_LZMA):
             io.write(buf)
 
         # End
@@ -85,6 +86,36 @@ class TestSync(TestCase):
 
             for name in file.namelist():
                 self.assertNotEqual(len(file.read(name)), 0)
+
+    def test_gen(self) -> None:
+        """Test async generator."""
+        builder = ZipBuilder()
+        io = BytesIO()
+
+        # Contents for AsyncGenerator
+        data = (b"hello", b"world", b"from", b"Generator", b"x"*1024)
+
+        # Generator for data
+        def gen_data() -> Generator[bytes, None, None]:
+            for buf in data:
+                yield buf
+
+        # Write generator content to io
+        for buf in builder.add_gen("async_gen.txt", gen_data()):
+            io.write(buf)
+
+        # End
+        io.write(builder.end())
+
+        # Check existence
+        with ZipFile(io, "r") as file:
+            self.assertEqual(
+                file.namelist(),
+                ["async_gen.txt"],
+            )
+
+            for name in file.namelist():
+                self.assertEqual(file.read(name), b"".join(data))
 
 
 if __name__ == "__main__":

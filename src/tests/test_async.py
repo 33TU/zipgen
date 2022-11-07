@@ -1,4 +1,5 @@
-from asyncio import subprocess
+from asyncio import subprocess, sleep
+from typing import AsyncGenerator
 from unittest import IsolatedAsyncioTestCase, main
 from io import BytesIO
 from zipfile import ZipFile
@@ -56,6 +57,37 @@ class TestSync(IsolatedAsyncioTestCase):
 
             for name in file.namelist():
                 self.assertNotEqual(len(file.read(name)), 0)
+
+    async def test_gen_async(self) -> None:
+        """Test async generator."""
+        builder = ZipBuilder()
+        io = BytesIO()
+
+        # Contents for AsyncGenerator
+        data = (b"hello", b"world", b"from", b"AsyncGenerator", b"x"*1024)
+
+        # AsyncGenerator for data
+        async def gen_data_async() -> AsyncGenerator[bytes, None]:
+            for buf in data:
+                await sleep(0)
+                yield buf
+
+        # Write generator content to io
+        async for buf in builder.add_gen_async("gen.txt", gen_data_async()):
+            io.write(buf)
+
+        # End
+        io.write(builder.end())
+
+        # Check existence
+        with ZipFile(io, "r") as file:
+            self.assertEqual(
+                file.namelist(),
+                ["gen.txt"],
+            )
+
+            for name in file.namelist():
+                self.assertEqual(file.read(name), b"".join(data))
 
 
 if __name__ == "__main__":

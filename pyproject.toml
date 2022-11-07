@@ -1,6 +1,6 @@
 [project]
 name = "zipgen"
-version = "0.1.1.2"
+version = "0.1.2"
 authors = [
   { name="33TU", email="eetu@skid.tools" },
 ]

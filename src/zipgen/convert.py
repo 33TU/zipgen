@@ -1,6 +1,6 @@
 from time import localtime
-from os.path import normpath
-from typing import Tuple, Union, Optional, AnyStr
+from posixpath import normpath
+from typing import Tuple, Optional, AnyStr
 
 
 __all__ = (

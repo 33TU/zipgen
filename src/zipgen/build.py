@@ -253,8 +253,8 @@ class ZipBuilder(object):
             0xFFFFFFFF if use_zip64 else self.ctx.relative_offset,
         ), self.ctx.path, extra, self.ctx.comment)
 
-    def add_file(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
-        """Adds file and returns Generator object."""
+    def add_io(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
+        """Adds io and returns Generator of bytes object."""
         with io:
             # Create file context.
             self.ctx = self._new_file_ctx(
@@ -265,7 +265,7 @@ class ZipBuilder(object):
             try:
                 yield self._write_local_file()
 
-                for buf in compress_io_gen(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
+                for buf in compress_io(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
                     yield self._write(buf)
 
                 yield self._write_data_descriptor()
@@ -273,8 +273,8 @@ class ZipBuilder(object):
                 self._set_header()
                 self._clear_ctx()
 
-    async def add_file_async(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> AsyncGenerator[bytes, None]:
-        """Adds file and returns async Generator object."""
+    async def add_io_async(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> AsyncGenerator[bytes, None]:
+        """Adds file and returns async Generator of bytes object."""
         with io:
             # Create file context.
             self.ctx = self._new_file_ctx(
@@ -285,16 +285,52 @@ class ZipBuilder(object):
             try:
                 yield self._write_local_file()
 
-                async for buf in compress_io_gen_async(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
+                async for buf in compress_io_async(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
                     yield self._write(buf)
 
                 yield self._write_data_descriptor()
             finally:
                 self._set_header()
                 self._clear_ctx()
+
+    def add_gen(self, path: AnyStr, gen: Generator[bytes, None, None], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
+        """Adds gen and returns Generator of bytes object."""
+        self.ctx = self._new_file_ctx(
+            path, None, utc_time, compression, comment
+        )
+
+        # Yield file's header and content.
+        try:
+            yield self._write_local_file()
+
+            for buf in compress_gen(self.ctx.compressor, self.ctx.compressor_ctx, gen):
+                yield self._write(buf)
+
+            yield self._write_data_descriptor()
+        finally:
+            self._set_header()
+            self._clear_ctx()
+
+    async def add_gen_async(self, path: AnyStr, gen: AsyncGenerator[bytes, None], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> AsyncGenerator[bytes, None]:
+        """Adds gen and returns async Generator of bytes object."""
+        self.ctx = self._new_file_ctx(
+            path, None, utc_time, compression, comment
+        )
+
+        # Yield file's header and content.
+        try:
+            yield self._write_local_file()
+
+            async for buf in compress_gen_async(self.ctx.compressor, self.ctx.compressor_ctx, gen):
+                yield self._write(buf)
+
+            yield self._write_data_descriptor()
+        finally:
+            self._set_header()
+            self._clear_ctx()
 
     async def add_stream_async(self, path: AnyStr, reader: StreamReader, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="", buf_size=4096) -> AsyncGenerator[bytes, None]:
-        """Adds stream and returns async Generator object."""
+        """Adds stream and returns async Generator of bytes object."""
         # Create file context.
         self.ctx = self._new_file_ctx(
             path, None, utc_time, compression, comment
@@ -304,7 +340,7 @@ class ZipBuilder(object):
         try:
             yield self._write_local_file()
 
-            async for buf in compress_stream_gen_async(self.ctx.compressor, self.ctx.compressor_ctx, reader, buf_size):
+            async for buf in compress_stream_async(self.ctx.compressor, self.ctx.compressor_ctx, reader, buf_size):
                 yield self._write(buf)
 
             yield self._write_data_descriptor()
@@ -313,7 +349,7 @@ class ZipBuilder(object):
             self._clear_ctx()
 
     def add_folder(self, path: AnyStr, utc_time: Optional[float] = None, comment: AnyStr = None) -> bytes:
-        """Adds folder and returns Generator object."""
+        """Adds folder and returns Generator of bytes object."""
         if self.ctx is not None:
             raise ValueError("File operation pending.")
 
@@ -394,7 +430,7 @@ class ZipBuilder(object):
                 fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
 
                 # Yield file contents
-                for buf in self.add_file(path, fs, utc_time, file_compression, comment):
+                for buf in self.add_io(path, fs, utc_time, file_compression, comment):
                     yield buf
 
     async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
@@ -421,7 +457,7 @@ class ZipBuilder(object):
                 fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
 
                 # Yield file contents
-                async for buf in self.add_file_async(path, fs, utc_time, file_compression, comment):
+                async for buf in self.add_io_async(path, fs, utc_time, file_compression, comment):
                     yield buf
 
     def end(self, comment: AnyStr = None) -> bytes:

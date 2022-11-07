@@ -30,6 +30,7 @@ Compression method can be set with `--comp` option and comment can be set with
 ```py
 import io
 import zipgen
+from typing import Generator
 
 
 def main() -> None:
@@ -38,15 +39,23 @@ def main() -> None:
 
     with open("dist_sync.zip", "wb+") as file:
         # Add file, default compression is COMPRESSION_STORED
-        for buf in builder.add_file("async.py", open("sync.py", "rb")):
+        for buf in builder.add_io("async.py", open("sync.py", "rb")):
             file.write(buf)
 
-        # Add BytesIO
-        for buf in builder.add_file("buffer.txt", io.BytesIO(b"Hello world from BytesIO!"), compression=zipgen.COMPRESSION_BZIP2):
+        # Add from BytesIO
+        for buf in builder.add_io("buffer.txt", io.BytesIO(b"Hello world from BytesIO!"), compression=zipgen.COMPRESSION_BZIP2):
             file.write(buf)
 
         # Walk src
         for buf in builder.walk("../src", "src-files-dist", compression=zipgen.COMPRESSION_DEFLATED):
+            file.write(buf)
+
+        # Add from Generator
+        def data_gen() -> Generator[bytes, None, None]:
+            for i in range(1024):
+                yield f"hello from generator {i}\n".encode()
+
+        for buf in builder.add_gen("generator.txt", data_gen(), compression=zipgen.COMPRESSION_LZMA):
             file.write(buf)
 
         # Add empty folders
@@ -67,6 +76,7 @@ if __name__ == "__main__":
 ```py
 import asyncio
 import zipgen
+from typing import AsyncGenerator
 
 
 async def main() -> None:
@@ -75,11 +85,20 @@ async def main() -> None:
 
     with open("dist_async.zip", "wb+") as file:
         # Add file, default compression is COMPRESSION_STORED
-        async for buf in builder.add_file_async("async.py", open("async.py", "rb")):
+        async for buf in builder.add_io_async("async.py", open("async.py", "rb")):
             file.write(buf)
 
         # Walk src
         async for buf in builder.walk_async("../src", "src-files-dist", compression=zipgen.COMPRESSION_DEFLATED):
+            file.write(buf)
+
+        # Add from AsyncGenerator
+        async def data_gen_async() -> AsyncGenerator[bytes, None]:
+            for i in range(1024):
+                await asyncio.sleep(0)
+                yield f"hello from async generator {i}\n".encode()
+
+        async for buf in builder.add_gen_async("generator.txt", data_gen_async(), compression=zipgen.COMPRESSION_LZMA):
             file.write(buf)
 
         # Read process content to zip
