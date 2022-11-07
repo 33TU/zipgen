@@ -9,7 +9,7 @@ def main() -> None:
 
     with open("dist_sync.zip", "wb+") as file:
         # Add file, default compression is COMPRESSION_STORED
-        for buf in builder.add_io("async.py", open("sync.py", "rb")):
+        for buf in builder.add_io("sync.py", open("sync.py", "rb")):
             file.write(buf)
 
         # Add from BytesIO
