@@ -17,6 +17,7 @@ __all__ = (
     "get_compressor",
     "get_extract_version",
     "CompressorContext",
+    "compress_buf",
     "compress_io",
     "compress_io_async",
     "compress_gen",
@@ -156,6 +157,32 @@ class CompressorContext(object):
         self.compressed_size += len(buf)
 
 
+def compress_buf(compressor: CompressorBase, context: CompressorContext, buf: Union[bytes, bytearray, memoryview], buf_size: int) -> Generator[bytes, None, None]:
+    """Compresses, updates context and yields compressed buf data."""
+    with memoryview(buf) as buf_view:
+        buf_pos = 0
+        buf_remaining = len(buf)
+
+        while buf_remaining > 0:
+            rcount = min(buf_remaining, buf_size)
+
+            rbuf = buf_view[buf_pos:buf_pos+rcount]
+            cbuf = compressor.compress(rbuf)
+            buf_remaining -= rcount
+            buf_pos += rcount
+
+            context.update(rbuf, cbuf)
+            yield cbuf
+
+    # Flush
+    cbuf = compressor.flush()
+
+    # Yield remaining
+    if len(cbuf) != 0:
+        context.flush(cbuf)
+        yield cbuf
+
+
 def compress_io(compressor: CompressorBase, context: CompressorContext, io: Union[BufferedIOBase, RawIOBase], buffer: Union[memoryview, bytearray]) -> Generator[bytes, None, None]:
     """Compresses, updates context and yields compressed io data."""
     # Read all data
@@ -170,12 +197,12 @@ def compress_io(compressor: CompressorBase, context: CompressorContext, io: Unio
         yield cbuf
 
     # Flush
-    buf = compressor.flush()
+    cbuf = compressor.flush()
 
     # Yield remaining
-    if len(buf) != 0:
-        context.flush(buf)
-        yield buf
+    if len(cbuf) != 0:
+        context.flush(cbuf)
+        yield cbuf
 
 
 async def compress_io_async(compressor: CompressorBase, context: CompressorContext, io: Union[BufferedIOBase, RawIOBase], buffer: Union[memoryview, bytearray]) -> AsyncGenerator[bytes, None]:
@@ -190,10 +217,10 @@ async def compress_io_async(compressor: CompressorBase, context: CompressorConte
             return None
 
     while True:
-        buf = await loop.run_in_executor(None, try_get_next)
-        if buf is None:
+        cbuf = await loop.run_in_executor(None, try_get_next)
+        if cbuf is None:
             break
-        yield buf
+        yield cbuf
 
 
 def compress_gen(compressor: CompressorBase, context: CompressorContext, gen: Generator[bytes, None, None]) -> Generator[bytes, None, None]:

@@ -253,6 +253,25 @@ class ZipBuilder(object):
             0xFFFFFFFF if use_zip64 else self.ctx.relative_offset,
         ), self.ctx.path, extra, self.ctx.comment)
 
+    def add_buf(self, path: AnyStr, buf: Union[bytes, bytearray, memoryview], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
+        """Adds io and returns Generator of bytes object."""
+        # Create file context.
+        self.ctx = self._new_file_ctx(
+            path, None, utc_time, compression, comment
+        )
+
+        # Yield file's header and content.
+        try:
+            yield self._write_local_file()
+
+            for buf in compress_buf(self.ctx.compressor, self.ctx.compressor_ctx, buf, len(self.buffer)):
+                yield self._write(buf)
+
+            yield self._write_data_descriptor()
+        finally:
+            self._set_header()
+            self._clear_ctx()
+
     def add_io(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
         """Adds io and returns Generator of bytes object."""
         with io:

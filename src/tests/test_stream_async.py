@@ -2,29 +2,28 @@ from asyncio import subprocess, sleep
 from typing import AsyncGenerator
 from unittest import IsolatedAsyncioTestCase, main
 from io import BytesIO
+from sys import argv
+from os import listdir
+from os.path import dirname
 from zipfile import ZipFile
-from zipgen import ZipBuilder
+from zipgen import ZipStreamWriter
 
 
-class TestSync(IsolatedAsyncioTestCase):
+class TestAsyncStream(IsolatedAsyncioTestCase):
     async def test_stream_async(self) -> None:
         """Test stream generator."""
-        builder = ZipBuilder()
         io = BytesIO()
         args = b"hello world"
 
-        # Read process content to zip
-        proc = await subprocess.create_subprocess_exec(
-            "echo", args,
-            stdout=subprocess.PIPE,
-        )
+        with ZipStreamWriter(io) as stream:
+            # Read process content to zip
+            proc = await subprocess.create_subprocess_exec(
+                "echo", args,
+                stdout=subprocess.PIPE,
+            )
 
-        if proc.stdout is not None:
-            async for buf in builder.add_stream_async("echo.txt", proc.stdout):
-                io.write(buf)
-
-        # End
-        io.write(builder.end())
+            if proc.stdout is not None:
+                await stream.add_stream_async("echo.txt", proc.stdout)
 
         # Check existence
         with ZipFile(io, "r") as file:
@@ -38,21 +37,18 @@ class TestSync(IsolatedAsyncioTestCase):
 
     async def test_walk_async(self) -> None:
         """Test walk generator."""
-        builder = ZipBuilder()
         io = BytesIO()
+        path = dirname(argv[0])
 
-        # Walk tests files
-        async for buf in builder.walk_async("./", "/"):
-            io.write(buf)
-
-        # End
-        io.write(builder.end())
+        with ZipStreamWriter(io) as stream:
+            # Walk tests files
+            await stream.walk_async(path, "/")
 
         # Check existence
         with ZipFile(io, "r") as file:
             self.assertEqual(
                 file.namelist(),
-                ["test_sync.py", "test_async.py"],
+                listdir(path),
             )
 
             for name in file.namelist():
@@ -60,24 +56,20 @@ class TestSync(IsolatedAsyncioTestCase):
 
     async def test_gen_async(self) -> None:
         """Test async generator."""
-        builder = ZipBuilder()
         io = BytesIO()
 
         # Contents for AsyncGenerator
         data = (b"hello", b"world", b"from", b"AsyncGenerator", b"x"*1024)
 
-        # AsyncGenerator for data
-        async def gen_data_async() -> AsyncGenerator[bytes, None]:
-            for buf in data:
-                await sleep(0)
-                yield buf
+        with ZipStreamWriter(io) as stream:
+            # AsyncGenerator for data
+            async def gen_data_async() -> AsyncGenerator[bytes, None]:
+                for buf in data:
+                    await sleep(0)
+                    yield buf
 
-        # Write generator content to io
-        async for buf in builder.add_gen_async("gen.txt", gen_data_async()):
-            io.write(buf)
-
-        # End
-        io.write(builder.end())
+            # Write generator content to io
+            await stream.add_gen_async("gen.txt", gen_data_async())
 
         # Check existence
         with ZipFile(io, "r") as file:
