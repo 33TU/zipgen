@@ -12,10 +12,12 @@ Zipgen also supports recursive creation of zip archives from existing folders.
 Synchronously or asynchronously.
 
 Zip archives can be created using the ZipBuilder and ZipStreamWriter classes.
-ZipBuilder provides methods that return byte generators. The ZipStreamWriter
-class can be used to write directly to streams and to asynchronous streams,
-which provide a wait drain() method, such as asyncio.StreamWriter.
-ZipStreamWriter uses ZipBuilder internally providing all of the same methods.
+ZipBuilder provides methods that return byte generators.
+
+The ZipStreamWriter class can be used to write directly to streams and to
+asynchronous streams, which provide a wait drain() method, such as
+asyncio.StreamWriter. ZipStreamWriter uses ZipBuilder internally providing all
+of the same methods.
 
 ## Command
 
