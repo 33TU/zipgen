@@ -9,7 +9,7 @@ async def create_async() -> None:
 
     # Dot not call ZipStreamWriter.end() if with clause is used
     with (
-            open("stream_sync.zip", "wb+") as f,
+            open("stream_async.zip", "wb+") as f,
             zipgen.ZipStreamWriter(f) as zsw,
     ):
         # Add folders, library corrects path to correct format
