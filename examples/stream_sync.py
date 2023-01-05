@@ -6,7 +6,7 @@ def create_sync() -> None:
     # ZipStreamWriter provides more practical interface using ZipBuilder
     # And it has has all the methods from ZipBuilder.
 
-    # Dot not call ZipStreamWriter.end() if with clause is used
+    # Do not call ZipStreamWriter.end() if with clause is used
     with (
             open("stream_sync.zip", "wb+") as f,
             zipgen.ZipStreamWriter(f) as zsw,

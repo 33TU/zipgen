@@ -45,7 +45,7 @@ def create_sync() -> None:
     # ZipStreamWriter provides more practical interface using ZipBuilder
     # And it has has all the methods from ZipBuilder.
 
-    # Dot not call ZipStreamWriter.end() if with clause is used
+    # Do not call ZipStreamWriter.end() if with clause is used
     with (
             open("stream_sync.zip", "wb+") as f,
             zipgen.ZipStreamWriter(f) as zsw,
@@ -101,7 +101,7 @@ async def create_async() -> None:
     # ZipStreamWriter supports regular Streams and asyncio.StreamWriter
     # If stream provides awaitable .drain() method such as asyncio.StreamWriter, it will be awaited after each write.
 
-    # Dot not call ZipStreamWriter.end() if with clause is used
+    # Do not call ZipStreamWriter.end() if with clause is used
     with (
             open("stream_async.zip", "wb+") as f,
             zipgen.ZipStreamWriter(f) as zsw,

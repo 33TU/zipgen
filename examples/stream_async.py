@@ -7,7 +7,7 @@ async def create_async() -> None:
     # ZipStreamWriter supports regular Streams and asyncio.StreamWriter
     # If stream provides awaitable .drain() method such as asyncio.StreamWriter, it will be awaited after each write.
 
-    # Dot not call ZipStreamWriter.end() if with clause is used
+    # Do not call ZipStreamWriter.end() if with clause is used
     with (
             open("stream_async.zip", "wb+") as f,
             zipgen.ZipStreamWriter(f) as zsw,
@@ -43,7 +43,7 @@ async def create_async() -> None:
         if proc.stdout is not None:
             await zsw.add_stream_async("echo.txt", proc.stdout)
 
-        # Set comment
+        # Set comment 0x07064b50
         zsw.set_comment("created by stream_async.py")
 
 

@@ -387,6 +387,7 @@ class ZipBuilder(object):
 
         offset = self.offset
         time, date = dos_time(utc_time)
+        use_zip64 = offset >= INT32_MAX
 
         # LocalFile
         buf = self._write(pack_header_with_data(HEADER_LOCAL_FILE, LocalFile(
@@ -402,6 +403,15 @@ class ZipBuilder(object):
             0,  # Len extra
         ), path_bytes))
 
+        # Extended information for zip64
+        extra = pack_header(TAG_EXTENDED_INFORMATION64, ExtendedInformation64(
+            SIZE_EXTENDED_INFORMATION,  # Size of extended information.
+            0,
+            0,
+            offset,
+            0,  # Disk start number
+        )) if use_zip64 else b""
+
         # CentralDirectory
         self.headers[path_bytes] = pack_header_with_data(HEADER_CENTRAL_DIRECTORY, CentralDirectory(
             self.version_extract,
@@ -412,16 +422,16 @@ class ZipBuilder(object):
             time,
             date,
             0,  # Crc32
-            0,  # Compressed len
-            0,  # Uncompressed len
+            0xFFFFFFFF if use_zip64 else 0,  # Compressed len
+            0xFFFFFFFF if use_zip64 else 0,  # Uncompressed len
             len(path_bytes),
-            0,  # Extra len
+            len(extra),  # Extra len
             len(comment_bytes),
             0,  # Disks tart
             0,  # Internal attr
             DEFAULT_EXTERNAL_DIR_ATTR,  # External attr
-            offset,
-        ), path_bytes, b"", comment_bytes,)
+            0xFFFFFFFF if use_zip64 else offset,
+        ), path_bytes, extra, comment_bytes,)
 
         return buf
 
