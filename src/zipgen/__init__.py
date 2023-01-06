@@ -4,7 +4,7 @@ from .stream import *
 
 
 __author__ = "33TU"
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 
 # Sources:

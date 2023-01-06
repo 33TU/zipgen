@@ -54,7 +54,7 @@ class CompressorDeflated(CompressorBase):
     __slots__ = ("compressor",)
 
     def __init__(self) -> None:
-        self.compressor = compressobj(-1, 8, -15)
+        self.compressor = compressobj(4, 8, -15, 9)
 
     def compress(self, data: bytes) -> bytes:
         """Returns deflate compressed data."""

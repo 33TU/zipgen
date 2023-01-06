@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from io import BufferedIOBase, RawIOBase, UnsupportedOperation
 from os import name, stat, walk
 from os.path import relpath, join, splitext
-from typing import AnyStr, Dict, AsyncGenerator, Generator, Tuple, Union, Optional, cast
+from typing import AnyStr, Dict, AsyncGenerator, Generator, Tuple, Union, Optional, cast, Callable
 
 from .compress import *
 from .constant import *
@@ -12,10 +12,29 @@ from .pack import *
 
 
 __all__ = (
+    "WalkIgnoreCallable",
+    "WalkNoCompressCallable",
+    "walk_ignore_default",
+    "walk_no_compress_default",
     "get_version_system",
     "ZipContext",
     "ZipBuilder",
 )
+
+
+# Callback for walk methods
+WalkIgnoreCallable = Callable[[AnyStr, AnyStr, bool], bool]
+WalkNoCompressCallable = Callable[[AnyStr, AnyStr], bool]
+
+
+# WalkCallable
+def walk_ignore_default(path: AnyStr, ext: AnyStr, folder: bool) -> bool:
+    return False
+
+
+# WalkCallable
+def walk_no_compress_default(path: AnyStr, ext: AnyStr) -> bool:
+    return ext in DEFAULT_NO_COMPRESS_FILE_EXTENSIONS
 
 
 def get_version_system(name: str) -> int:
@@ -436,7 +455,7 @@ class ZipBuilder(object):
         return buf
 
     def walk(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
-             no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> Generator[bytes, None, None]:
+             ignore: WalkIgnoreCallable = walk_ignore_default, no_compress: WalkNoCompressCallable = walk_no_compress_default) -> Generator[bytes, None, None]:
         """Generates the file headers and contents from src directory."""
         for curdir, _, files in walk(src, followlinks=False):
             # Relative path
@@ -444,18 +463,35 @@ class ZipBuilder(object):
 
             # Create folder
             if len(files) == 0:
+                # Path
                 path = norm_path(join(dest, rpath), True)
+
+                # Skip if ignore
+                if ignore(path, "", True):
+                    continue
+
+                # Add folder
                 yield self.add_folder(path)
 
             # Write files
             for file in files:
-                # Check if file extension in no_compress
-                ext = splitext(file)[1].lower()
-                file_compression = COMPRESSION_STORED if ext in no_compress else compression
-
-                # Join path and open file.
+                # Join path
                 fpath = join(curdir, file)
                 path = norm_path(join(dest, rpath, file), False)
+                ext = splitext(file)[1].lower()
+
+                # Skip if ignore
+                if ignore(path, ext, False):
+                    continue
+
+                # Check if file needs to be compressed
+                file_compression = (
+                    COMPRESSION_STORED
+                    if no_compress(file, ext) else
+                    compression
+                )
+
+                # Open file.
                 fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
 
                 # Yield file contents
@@ -463,7 +499,7 @@ class ZipBuilder(object):
                     yield buf
 
     async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
-                         no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> AsyncGenerator[bytes, None]:
+                         ignore: WalkIgnoreCallable = walk_ignore_default, no_compress: WalkNoCompressCallable = walk_no_compress_default) -> AsyncGenerator[bytes, None]:
         """Generates the file headers and contents from src directory asyncnorously."""
         for curdir, _, files in walk(src, followlinks=False):
             # Relative path
@@ -471,18 +507,35 @@ class ZipBuilder(object):
 
             # Create folder
             if len(files) == 0:
+                # Path
                 path = norm_path(join(dest, rpath), True)
+
+                # Skip if ignore
+                if ignore(path, "", True):
+                    continue
+
+                # Add folder
                 yield self.add_folder(path)
 
             # Write files
             for file in files:
-                # Check if file extension in no_compress
-                ext = splitext(file)[1].lower()
-                file_compression = COMPRESSION_STORED if ext in no_compress else compression
-
-                # Join path and open file.
+                # Join path
                 fpath = join(curdir, file)
                 path = norm_path(join(dest, rpath, file), False)
+                ext = splitext(file)[1].lower()
+
+                # Skip if ignore
+                if ignore(path, ext, False):
+                    continue
+
+                # Check if file needs to be compressed
+                file_compression = (
+                    COMPRESSION_STORED
+                    if no_compress(file, ext) else
+                    compression
+                )
+
+                # Open file.
                 fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
 
                 # Yield file contents

@@ -88,9 +88,9 @@ class ZipStreamWriter(object):
             self.stream.write(buf)
 
     def walk(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
-             no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> None:
+             ignore: WalkIgnoreCallable = walk_ignore_default, no_compress: WalkNoCompressCallable = walk_no_compress_default) -> None:
         """Generates the file headers and contents from src directory."""
-        for buf in self.builder.walk(src, dest, utc_time, compression, comment, no_compress):
+        for buf in self.builder.walk(src, dest, utc_time, compression, comment, ignore, no_compress):
             self.stream.write(buf)
 
     def end(self, comment: AnyStr = None) -> None:
@@ -139,9 +139,9 @@ class ZipStreamWriter(object):
                 await self.drain()
 
     async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
-                         no_compress=DEFAULT_NO_COMPRESS_FILE_EXTENSIONS) -> None:
+                         ignore: WalkIgnoreCallable = walk_ignore_default, no_compress: WalkNoCompressCallable = walk_no_compress_default) -> None:
         """Generates the file headers and contents from src directory asyncnorously asyncnorously."""
-        async for buf in self.builder.walk_async(src, dest, utc_time, compression, comment, no_compress):
+        async for buf in self.builder.walk_async(src, dest, utc_time, compression, comment, ignore, no_compress):
             self.stream.write(buf)
 
             if self.drain is not None:
