@@ -569,12 +569,12 @@ class ZipBuilder(object):
         """Generates the file headers and contents from src directory asyncnorously."""
         src_abs = abspath(src)
 
-        for folder_abs, _, files_abs in walk(src_abs, followlinks=False):
+        for folder_abs, _, files in walk(src_abs, followlinks=False):
             # Relative path
             rel_path = relpath(folder_abs, src_abs)
 
             # Create Folder
-            if len(files_abs) == 0:
+            if len(files) == 0:
                 # On ignore skip
                 if ignore is not None and ignore(folder_abs, "", True, stat(folder_abs)):
                     continue
@@ -587,7 +587,10 @@ class ZipBuilder(object):
                 continue
 
             # Write Files
-            for file_abs in files_abs:
+            for file in files:
+                # Absolute
+                file_abs = join(folder_abs, file)
+
                 # File extension
                 ext = splitext(file_abs)[1].lower()
                 file_stat = stat(file_abs)
@@ -607,7 +610,7 @@ class ZipBuilder(object):
                 fs = cast(RawIOBase, open(file_abs, "rb", buffering=False))
 
                 # Yield file contents
-                dest_path = join(dest, rel_path, file_abs)
+                dest_path = join(dest, rel_path, file)
                 async for buf in self.add_io_async(dest_path, fs, utc_time, file_compression):
                     yield buf
 

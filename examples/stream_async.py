@@ -43,7 +43,7 @@ async def create_async() -> None:
         if proc.stdout is not None:
             await zsw.add_stream_async("echo.txt", proc.stdout)
 
-        # Set comment 0x07064b50
+        # Set comment
         zsw.set_comment("created by stream_async.py")
 
 
