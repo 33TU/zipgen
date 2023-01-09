@@ -1,8 +1,8 @@
 from asyncio import StreamReader
 from dataclasses import dataclass
 from io import BufferedIOBase, RawIOBase, UnsupportedOperation
-from os import name, stat, walk
-from os.path import relpath, join, splitext
+from os import name, stat, walk, stat_result
+from os.path import relpath, join, splitext, dirname, abspath
 from typing import AnyStr, Dict, AsyncGenerator, Generator, Tuple, Union, Optional, cast, Callable, Any
 
 from .compress import *
@@ -18,19 +18,21 @@ __all__ = (
     "walk_no_compress_default",
     "get_version_system",
     "ZipContext",
-    "BuilderCallbackContext",
+    "BuilderCallableContext",
     "ZipBuilder",
 )
 
 
-# WalkCallable
-def walk_ignore_default(path: AnyStr, ext: AnyStr, folder: bool) -> bool:
+# WalkIgnoreCallable
+def walk_ignore_default(path: AnyStr, ext: AnyStr, folder: bool, stat: stat_result) -> bool:
+    """Never ignores a file."""
     return False
 
 
-# WalkCallable
-def walk_no_compress_default(path: AnyStr, ext: AnyStr) -> bool:
-    return ext in DEFAULT_NO_COMPRESS_FILE_EXTENSIONS
+# WalkNoCompressCallable
+def walk_no_compress_default(path: AnyStr, ext: AnyStr, stat: stat_result) -> bool:
+    """Check if file extension is DEFAULT_NO_COMPRESS_FILE_EXTENSIONS and file size under 256."""
+    return ext in DEFAULT_NO_COMPRESS_FILE_EXTENSIONS or stat.st_size < 256
 
 
 def get_version_system(name: str) -> int:
@@ -54,28 +56,37 @@ class ZipContext(object):
 
 
 @dataclass
-class BuilderCallbackContext(object):
+class BuilderCallableContext(object):
     done: bool = False
     ctx: Optional[ZipContext] = None
     folderPath: Optional[bytes] = None
 
     @property
     def is_folder(self) -> bool:
+        """Returns true if folderPath is defined."""
         return self.folderPath is not None
 
     @property
     def is_file(self) -> bool:
+        """Returns true if ctx is defined."""
         return self.ctx is not None
 
     @property
     def path(self) -> bytes:
-        return self.folderPath or (self.ctx.path if self.ctx is not None else b"")
+        """Gets folder or ctx path."""
+        if self.folderPath is not None:
+            return self.folderPath
+
+        if self.ctx is not None:
+            return self.ctx.path
+
+        raise TypeError("paths are none")
 
 
 # Callback for methods
-BuilderCallback = Callable[[BuilderCallbackContext, Any], None]
-WalkIgnoreCallable = Callable[[AnyStr, AnyStr, bool], bool]
-WalkNoCompressCallable = Callable[[AnyStr, AnyStr], bool]
+BuilderCallable = Callable[[BuilderCallableContext, Any], None]
+WalkNoCompressCallable = Callable[[AnyStr, AnyStr, stat_result], bool]
+WalkIgnoreCallable = Callable[[AnyStr, AnyStr, bool, stat_result], bool]
 
 
 class ZipBuilder(object):
@@ -96,7 +107,7 @@ class ZipBuilder(object):
         self.headers: Dict[bytes, bytes] = {}
         self.ctx: Optional[ZipContext] = None
         self.offset: int = 0
-        self.callbacks: Dict[BuilderCallback, Any] = {}
+        self.callbacks: Dict[BuilderCallable, Any] = {}
 
     def _clear_ctx(self) -> None:
         """Clear context."""
@@ -298,12 +309,12 @@ class ZipBuilder(object):
     def _call(self, done: bool = False, ctx: Optional[ZipContext] = None, folderPath: Optional[bytes] = None) -> None:
         """Calls builder's all callbacks."""
         if self.callbacks:
-            bctx = BuilderCallbackContext(done, ctx, folderPath)
+            bctx = BuilderCallableContext(done, ctx, folderPath)
 
             for cb, extra in self.callbacks.items():
                 cb(bctx, extra)
 
-    def set_callback(self, cb: BuilderCallback, extra: Optional[Any] = None) -> None:
+    def set_callback(self, cb: BuilderCallable, extra: Optional[Any] = None) -> None:
         """Adds callback for watching events."""
         self.callbacks[cb] = extra
 
@@ -506,89 +517,98 @@ class ZipBuilder(object):
     def walk(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
              ignore: Optional[WalkIgnoreCallable] = walk_ignore_default, no_compress: Optional[WalkNoCompressCallable] = walk_no_compress_default) -> Generator[bytes, None, None]:
         """Generates the file headers and contents from src directory."""
-        for curdir, _, files in walk(src, followlinks=False):
+        src_abs = abspath(src)
+
+        for folder_abs, _, files in walk(src_abs, followlinks=False):
             # Relative path
-            rpath = relpath(curdir, src)
+            rel_path = relpath(folder_abs, src_abs)
 
-            # Create folder
+            # Create Folder
             if len(files) == 0:
-                # Path
-                path = norm_path(join(dest, rpath), True)
-
-                # Skip if ignore
-                if ignore is not None and ignore(path, "", True):
+                # On ignore skip
+                if ignore is not None and ignore(folder_abs, "", True, stat(folder_abs)):
                     continue
 
                 # Add folder
-                yield self.add_folder(path)
+                dest_path = join(dest, rel_path)
+                yield self.add_folder(dest_path, utc_time)
 
-            # Write files
+                # Goto next
+                continue
+
+            # Write Files
             for file in files:
-                # Join path
-                fpath = join(curdir, file)
-                path = norm_path(join(dest, rpath, file), False)
-                ext = splitext(file)[1].lower()
+                # Absolute
+                file_abs = join(folder_abs, file)
 
-                # Skip if ignore
-                if ignore is not None and ignore(path, ext, False):
+                # File extension
+                ext = splitext(file_abs)[1].lower()
+                file_stat = stat(file_abs)
+
+                # On ignore skip
+                if ignore is not None and ignore(file_abs, ext, False, file_stat):
                     continue
 
                 # Check if file needs to be compressed
                 file_compression = (
                     COMPRESSION_STORED
-                    if no_compress is not None and no_compress(file, ext) else
+                    if no_compress is not None and no_compress(file_abs, ext, file_stat) else
                     compression
                 )
 
-                # Open file.
-                fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
+                # Open file
+                fs = cast(RawIOBase, open(file_abs, "rb", buffering=False))
 
                 # Yield file contents
-                for buf in self.add_io(path, fs, utc_time, file_compression, comment):
+                dest_path = join(dest, rel_path, file)
+                for buf in self.add_io(dest_path, fs, utc_time, file_compression):
                     yield buf
 
     async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
                          ignore: Optional[WalkIgnoreCallable] = walk_ignore_default, no_compress: Optional[WalkNoCompressCallable] = walk_no_compress_default) -> AsyncGenerator[bytes, None]:
         """Generates the file headers and contents from src directory asyncnorously."""
-        for curdir, _, files in walk(src, followlinks=False):
+        src_abs = abspath(src)
+
+        for folder_abs, _, files_abs in walk(src_abs, followlinks=False):
             # Relative path
-            rpath = relpath(curdir, src)
+            rel_path = relpath(folder_abs, src_abs)
 
-            # Create folder
-            if len(files) == 0:
-                # Path
-                path = norm_path(join(dest, rpath), True)
-
-                # Skip if ignore
-                if ignore is not None and ignore(path, "", True):
+            # Create Folder
+            if len(files_abs) == 0:
+                # On ignore skip
+                if ignore is not None and ignore(folder_abs, "", True, stat(folder_abs)):
                     continue
 
                 # Add folder
-                yield self.add_folder(path)
+                dest_path = join(dest, rel_path)
+                yield self.add_folder(dest_path, utc_time)
 
-            # Write files
-            for file in files:
-                # Join path
-                fpath = join(curdir, file)
-                path = norm_path(join(dest, rpath, file), False)
-                ext = splitext(file)[1].lower()
+                # Goto next
+                continue
 
-                # Skip if ignore
-                if ignore is not None and ignore(path, ext, False):
+            # Write Files
+            for file_abs in files_abs:
+                # File extension
+                ext = splitext(file_abs)[1].lower()
+                file_stat = stat(file_abs)
+
+                # On ignore skip
+                if ignore is not None and ignore(file_abs, ext, False, file_stat):
                     continue
 
                 # Check if file needs to be compressed
                 file_compression = (
                     COMPRESSION_STORED
-                    if no_compress is not None and no_compress(file, ext) else
+                    if no_compress is not None and no_compress(file_abs, ext, file_stat) else
                     compression
                 )
 
-                # Open file.
-                fs = cast(RawIOBase, open(fpath, "rb", buffering=False))
+                # Open file
+                fs = cast(RawIOBase, open(file_abs, "rb", buffering=False))
 
                 # Yield file contents
-                async for buf in self.add_io_async(path, fs, utc_time, file_compression, comment):
+                dest_path = join(dest, rel_path, file_abs)
+                async for buf in self.add_io_async(dest_path, fs, utc_time, file_compression):
                     yield buf
 
     def end(self, comment: AnyStr = None) -> bytes:

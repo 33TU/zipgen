@@ -19,14 +19,40 @@ asynchronous streams, which provide a wait drain() method, such as
 asyncio.StreamWriter. ZipStreamWriter uses ZipBuilder internally providing all
 of the same methods.
 
+---
+
 ## Command
 
 Zipgen can also be used as a command:
-`python -m zipgen dest.zip file1.txt ./any/folder`.
 
-The command supports adding several files or folders at once recursively.
-Compression method can be set with `--comp` option and comment can be set with
-`--comment`.
+`python -m zipgen dest.zip file1.txt file2.py ./folder/images`
+
+`python -m zipgen dest.zip . --comp 8 --comment "working directory deflate compressed"`
+
+`python -m zipgen - project/src --dest-stdout > src.zip`
+
+The command supports adding several files or folders at once recursively with
+various or compressions or without any compression. It also supports verbose
+logging that can be disabled.
+
+### Command args
+
+- dest
+  - Destination file. Always first argument.
+- --dest-stdout
+  - Sets dest output to stdout. The first argument dest will be ignored.
+- --path
+  - Internal dest folder in zip.
+- --no-ipf
+  - Do not include parent folder for directories.
+- --comment
+  - Comment of the zip file.
+- --buf
+  - Read buffer size.
+- --comp
+  - Compression format. 0 = STORED, 8 = DEFLATED, 12 = BZIP2 and 14 = LZMA.
+- -q
+  - Sets verbose mode off.
 
 # Install
 

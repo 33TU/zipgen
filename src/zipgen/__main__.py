@@ -1,12 +1,12 @@
 from sys import stderr, stdout, exit
-from os.path import isdir, join, basename, relpath, dirname, realpath
+from os import stat, stat_result
+from os.path import isdir, join, basename, abspath, dirname, relpath, splitext
 from dataclasses import dataclass, field
 from argparse import ArgumentParser, Namespace
 from typing import Any, AnyStr, Iterable, cast
 
-from .build import BuilderCallbackContext
+from .build import BuilderCallableContext, walk_no_compress_default
 from .stream import ZipStreamWriter
-from .convert import norm_path
 from .constant import *
 
 
@@ -25,19 +25,27 @@ class Arguments(Namespace):
 
 @dataclass
 class VerboseExra(object):
-    walk: bool
     path: str
-    args: Arguments
+    walk: bool = False
+    cwd: bool = False
 
 
-def cb_verbose(bctx: BuilderCallbackContext, extra: Any) -> None:
+def cb_verbose(bctx: BuilderCallableContext, extra: Any) -> None:
     """Handles pringting verbose informaton."""
     vextra = cast(VerboseExra, extra)
     fpath = bctx.path.decode()
-    #path = join(vextra.path, fpath) if vextra.walk else vextra.path
 
-    if not bctx.done or bctx.is_folder:
-        print(" adding", fpath, file=stderr, end="", flush=True)
+    # Get path
+    if vextra.walk:
+        path = join(
+            vextra.path if vextra.cwd else dirname(vextra.path),
+            fpath,
+        )
+    else:
+        path = vextra.path
+
+    if not bctx.done:
+        print(" adding", path, file=stderr, end="", flush=True)
     elif bctx.done and bctx.ctx:
         cctx = bctx.ctx.compressor_ctx
         compressed = bctx.ctx.compression != 0
@@ -56,13 +64,14 @@ def main(args: Arguments) -> None:
 
     with out_file, ZipStreamWriter(out_file, args.buf) as zsw:
         # Absolute path
-        out_file_abs = realpath(out_file.name)
+        out_file_abs = abspath(out_file.name)
+        cwd_abs = abspath(".")
 
         # Write srcs
         for src_file in args.src:
             try:
                 # Absolute path
-                src_file_abs = realpath(src_file)
+                src_file_abs = abspath(src_file)
 
                 if isdir(src_file):
                     # Filename in zip
@@ -72,24 +81,16 @@ def main(args: Arguments) -> None:
                         ""
                     )
 
-                    # File in dir
-                    # Skip trying to add self to zip file
-                    out_file_in_dir = src_file_abs == dirname(out_file_abs)
-                    out_file_in_dir_path = norm_path(
-                        join(args.path, basename(out_file_abs))
-                        if out_file_in_dir else
-                        "", False
-                    )
-
                     # Ignore self
-                    def ignore_self(path: AnyStr, ext: AnyStr, folder: bool) -> bool:
-                        return out_file_in_dir and path == out_file_in_dir_path
+                    def ignore_self(path: AnyStr, ext: AnyStr, folder: bool, stat: stat_result) -> bool:
+                        return path == out_file_abs
 
                     # Verbose
                     if args.verbose:
                         zsw.builder.set_callback(
-                            cb_verbose, VerboseExra(walk=True, path=src_file_abs, args=args))
+                            cb_verbose, VerboseExra(path=src_file_abs, walk=True, cwd=cwd_abs == src_file_abs))
 
+                    # Add files to stream
                     zsw.walk(src_file_abs, join(args.path, dname),
                              compression=args.comp, ignore=ignore_self)
                 else:
@@ -100,10 +101,19 @@ def main(args: Arguments) -> None:
                     # Verbose
                     if args.verbose:
                         zsw.builder.set_callback(
-                            cb_verbose, VerboseExra(walk=False, path=src_file_abs, args=args))
+                            cb_verbose, VerboseExra(path=src_file_abs))
 
+                    # Check if file needs to be compressed
+                    ext = splitext(src_file_abs)[1].lower()
+                    file_compression = (
+                        COMPRESSION_STORED
+                        if walk_no_compress_default(src_file_abs, ext, stat(src_file_abs)) else
+                        args.comp
+                    )
+
+                    # Add file to stream
                     zsw.add_io(join(args.path, src_file),
-                               open(src_file_abs, "rb"), compression=args.comp)
+                               open(src_file_abs, "rb"), compression=file_compression)
             except Exception as ex:
                 print(str(ex), file=stderr)
 
