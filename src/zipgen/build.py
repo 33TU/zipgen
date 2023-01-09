@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from io import BufferedIOBase, RawIOBase, UnsupportedOperation
 from os import name, stat, walk
 from os.path import relpath, join, splitext
-from typing import AnyStr, Dict, AsyncGenerator, Generator, Tuple, Union, Optional, cast, Callable
+from typing import AnyStr, Dict, AsyncGenerator, Generator, Tuple, Union, Optional, cast, Callable, Any
 
 from .compress import *
 from .constant import *
@@ -18,13 +18,9 @@ __all__ = (
     "walk_no_compress_default",
     "get_version_system",
     "ZipContext",
+    "BuilderCallbackContext",
     "ZipBuilder",
 )
-
-
-# Callback for walk methods
-WalkIgnoreCallable = Callable[[AnyStr, AnyStr, bool], bool]
-WalkNoCompressCallable = Callable[[AnyStr, AnyStr], bool]
 
 
 # WalkCallable
@@ -57,6 +53,31 @@ class ZipContext(object):
     relative_offset: int
 
 
+@dataclass
+class BuilderCallbackContext(object):
+    done: bool = False
+    ctx: Optional[ZipContext] = None
+    folderPath: Optional[bytes] = None
+
+    @property
+    def is_folder(self) -> bool:
+        return self.folderPath is not None
+
+    @property
+    def is_file(self) -> bool:
+        return self.ctx is not None
+
+    @property
+    def path(self) -> bytes:
+        return self.folderPath or (self.ctx.path if self.ctx is not None else b"")
+
+
+# Callback for methods
+BuilderCallback = Callable[[BuilderCallbackContext, Any], None]
+WalkIgnoreCallable = Callable[[AnyStr, AnyStr, bool], bool]
+WalkNoCompressCallable = Callable[[AnyStr, AnyStr], bool]
+
+
 class ZipBuilder(object):
     __slots__ = (
         "buffer",
@@ -65,6 +86,7 @@ class ZipBuilder(object):
         "headers",
         "ctx",
         "offset",
+        "callbacks",
     )
 
     def __init__(self, buffer_size=65536, system=get_version_system(name)) -> None:
@@ -73,7 +95,8 @@ class ZipBuilder(object):
         self.version_extract = CREATE_DEFAULT
         self.headers: Dict[bytes, bytes] = {}
         self.ctx: Optional[ZipContext] = None
-        self.offset = 0
+        self.offset: int = 0
+        self.callbacks: Dict[BuilderCallback, Any] = {}
 
     def _clear_ctx(self) -> None:
         """Clear context."""
@@ -272,8 +295,20 @@ class ZipBuilder(object):
             0xFFFFFFFF if use_zip64 else self.ctx.relative_offset,
         ), self.ctx.path, extra, self.ctx.comment)
 
+    def _call(self, done: bool = False, ctx: Optional[ZipContext] = None, folderPath: Optional[bytes] = None) -> None:
+        """Calls builder's all callbacks."""
+        if self.callbacks:
+            bctx = BuilderCallbackContext(done, ctx, folderPath)
+
+            for cb, extra in self.callbacks.items():
+                cb(bctx, extra)
+
+    def set_callback(self, cb: BuilderCallback, extra: Optional[Any] = None) -> None:
+        """Adds callback for watching events."""
+        self.callbacks[cb] = extra
+
     def add_buf(self, path: AnyStr, buf: Union[bytes, bytearray, memoryview], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
-        """Adds io and returns Generator of bytes object."""
+        """Adds the buffer and returns Generator of bytes object."""
         # Create file context.
         self.ctx = self._new_file_ctx(
             path, None, utc_time, compression, comment
@@ -281,6 +316,7 @@ class ZipBuilder(object):
 
         # Yield file's header and content.
         try:
+            self._call(done=False, ctx=self.ctx)
             yield self._write_local_file()
 
             for buf in compress_buf(self.ctx.compressor, self.ctx.compressor_ctx, buf, len(self.buffer)):
@@ -288,11 +324,12 @@ class ZipBuilder(object):
 
             yield self._write_data_descriptor()
         finally:
+            self._call(done=True, ctx=self.ctx)
             self._set_header()
             self._clear_ctx()
 
     def add_io(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
-        """Adds io and returns Generator of bytes object."""
+        """Adds the io and returns Generator of bytes object."""
         with io:
             # Create file context.
             self.ctx = self._new_file_ctx(
@@ -301,6 +338,7 @@ class ZipBuilder(object):
 
             # Yield file's header and content.
             try:
+                self._call(done=False, ctx=self.ctx)
                 yield self._write_local_file()
 
                 for buf in compress_io(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
@@ -308,11 +346,12 @@ class ZipBuilder(object):
 
                 yield self._write_data_descriptor()
             finally:
+                self._call(done=True, ctx=self.ctx)
                 self._set_header()
                 self._clear_ctx()
 
     async def add_io_async(self, path: AnyStr, io: Union[BufferedIOBase, RawIOBase], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> AsyncGenerator[bytes, None]:
-        """Adds file and returns async Generator of bytes object."""
+        """Adds the io and returns async Generator of bytes object."""
         with io:
             # Create file context.
             self.ctx = self._new_file_ctx(
@@ -321,6 +360,7 @@ class ZipBuilder(object):
 
             # Yield file's header and content.
             try:
+                self._call(done=False, ctx=self.ctx)
                 yield self._write_local_file()
 
                 async for buf in compress_io_async(self.ctx.compressor, self.ctx.compressor_ctx, io, self.buffer):
@@ -328,17 +368,19 @@ class ZipBuilder(object):
 
                 yield self._write_data_descriptor()
             finally:
+                self._call(done=True, ctx=self.ctx)
                 self._set_header()
                 self._clear_ctx()
 
     def add_gen(self, path: AnyStr, gen: Generator[bytes, None, None], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> Generator[bytes, None, None]:
-        """Adds gen and returns Generator of bytes object."""
+        """Adds the generator and returns Generator of bytes object."""
         self.ctx = self._new_file_ctx(
             path, None, utc_time, compression, comment
         )
 
         # Yield file's header and content.
         try:
+            self._call(done=False, ctx=self.ctx)
             yield self._write_local_file()
 
             for buf in compress_gen(self.ctx.compressor, self.ctx.compressor_ctx, gen):
@@ -346,17 +388,19 @@ class ZipBuilder(object):
 
             yield self._write_data_descriptor()
         finally:
+            self._call(done=True, ctx=self.ctx)
             self._set_header()
             self._clear_ctx()
 
     async def add_gen_async(self, path: AnyStr, gen: AsyncGenerator[bytes, None], utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="") -> AsyncGenerator[bytes, None]:
-        """Adds gen and returns async Generator of bytes object."""
+        """Adds the async generator and returns async Generator of bytes object."""
         self.ctx = self._new_file_ctx(
             path, None, utc_time, compression, comment
         )
 
         # Yield file's header and content.
         try:
+            self._call(done=False, ctx=self.ctx)
             yield self._write_local_file()
 
             async for buf in compress_gen_async(self.ctx.compressor, self.ctx.compressor_ctx, gen):
@@ -364,11 +408,12 @@ class ZipBuilder(object):
 
             yield self._write_data_descriptor()
         finally:
+            self._call(done=True, ctx=self.ctx)
             self._set_header()
             self._clear_ctx()
 
     async def add_stream_async(self, path: AnyStr, reader: StreamReader, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment="", buf_size=4096) -> AsyncGenerator[bytes, None]:
-        """Adds stream and returns async Generator of bytes object."""
+        """Adds the stream and returns async Generator of bytes object."""
         # Create file context.
         self.ctx = self._new_file_ctx(
             path, None, utc_time, compression, comment
@@ -376,6 +421,7 @@ class ZipBuilder(object):
 
         # Yield file's header and content.
         try:
+            self._call(done=False, ctx=self.ctx)
             yield self._write_local_file()
 
             async for buf in compress_stream_async(self.ctx.compressor, self.ctx.compressor_ctx, reader, buf_size):
@@ -383,11 +429,12 @@ class ZipBuilder(object):
 
             yield self._write_data_descriptor()
         finally:
+            self._call(done=True, ctx=self.ctx)
             self._set_header()
             self._clear_ctx()
 
     def add_folder(self, path: AnyStr, utc_time: Optional[float] = None, comment: AnyStr = None) -> bytes:
-        """Adds folder and returns Generator of bytes object."""
+        """Adds the folder and returns Generator of bytes object."""
         if self.ctx is not None:
             raise ValueError("File operation pending.")
 
@@ -452,10 +499,12 @@ class ZipBuilder(object):
             0xFFFFFFFF if use_zip64 else offset,
         ), path_bytes, extra, comment_bytes,)
 
+        self._call(done=True, folderPath=path_bytes)
+
         return buf
 
     def walk(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
-             ignore: WalkIgnoreCallable = walk_ignore_default, no_compress: WalkNoCompressCallable = walk_no_compress_default) -> Generator[bytes, None, None]:
+             ignore: Optional[WalkIgnoreCallable] = walk_ignore_default, no_compress: Optional[WalkNoCompressCallable] = walk_no_compress_default) -> Generator[bytes, None, None]:
         """Generates the file headers and contents from src directory."""
         for curdir, _, files in walk(src, followlinks=False):
             # Relative path
@@ -467,7 +516,7 @@ class ZipBuilder(object):
                 path = norm_path(join(dest, rpath), True)
 
                 # Skip if ignore
-                if ignore(path, "", True):
+                if ignore is not None and ignore(path, "", True):
                     continue
 
                 # Add folder
@@ -481,13 +530,13 @@ class ZipBuilder(object):
                 ext = splitext(file)[1].lower()
 
                 # Skip if ignore
-                if ignore(path, ext, False):
+                if ignore is not None and ignore(path, ext, False):
                     continue
 
                 # Check if file needs to be compressed
                 file_compression = (
                     COMPRESSION_STORED
-                    if no_compress(file, ext) else
+                    if no_compress is not None and no_compress(file, ext) else
                     compression
                 )
 
@@ -499,7 +548,7 @@ class ZipBuilder(object):
                     yield buf
 
     async def walk_async(self, src: AnyStr, dest: AnyStr, utc_time: Optional[float] = None, compression=COMPRESSION_STORED, comment: AnyStr = None,
-                         ignore: WalkIgnoreCallable = walk_ignore_default, no_compress: WalkNoCompressCallable = walk_no_compress_default) -> AsyncGenerator[bytes, None]:
+                         ignore: Optional[WalkIgnoreCallable] = walk_ignore_default, no_compress: Optional[WalkNoCompressCallable] = walk_no_compress_default) -> AsyncGenerator[bytes, None]:
         """Generates the file headers and contents from src directory asyncnorously."""
         for curdir, _, files in walk(src, followlinks=False):
             # Relative path
@@ -511,7 +560,7 @@ class ZipBuilder(object):
                 path = norm_path(join(dest, rpath), True)
 
                 # Skip if ignore
-                if ignore(path, "", True):
+                if ignore is not None and ignore(path, "", True):
                     continue
 
                 # Add folder
@@ -525,13 +574,13 @@ class ZipBuilder(object):
                 ext = splitext(file)[1].lower()
 
                 # Skip if ignore
-                if ignore(path, ext, False):
+                if ignore is not None and ignore(path, ext, False):
                     continue
 
                 # Check if file needs to be compressed
                 file_compression = (
                     COMPRESSION_STORED
-                    if no_compress(file, ext) else
+                    if no_compress is not None and no_compress(file, ext) else
                     compression
                 )
 
@@ -543,7 +592,7 @@ class ZipBuilder(object):
                     yield buf
 
     def end(self, comment: AnyStr = None) -> bytes:
-        """Returns EOCD which contains headers for all added files."""
+        """Returns EOCD bytes which contains headers for all added files."""
         if comment is None:
             comment_bytes = b""
         elif isinstance(comment, str):
