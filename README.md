@@ -1,8 +1,8 @@
 # zipgen
 
-Zipgen is a simple and performant zip archive generator for Python 3.7 and
-later. It supports ZIP64, uncompressed and various compression formats such as:
-Deflated, Bzip and LZMA.
+Zipgen is a simple and performant cross-platform zip archive generator for
+Python 3.7 and later. It supports ZIP64, uncompressed and various compression
+formats such as: Deflated, Bzip and LZMA.
 
 Zipgen supports synchronous asynchronous generation. Zipgen can zip archives
 from stream objects such as FileIO, BytesIO, generators and asynchronous
@@ -18,6 +18,12 @@ The ZipStreamWriter class can be used to write directly to streams and to
 asynchronous streams, which provide a wait drain() method, such as
 asyncio.StreamWriter. ZipStreamWriter uses ZipBuilder internally providing all
 of the same methods.
+
+---
+
+## Install
+
+`python -m pip install zipgen`
 
 ---
 
@@ -54,11 +60,23 @@ logging that can be disabled.
 - -q
   - Sets verbose mode off.
 
-# Install
+### Comparsion to other zip commands
 
-`python -m pip install zipgen`
+Zipgen:
 
----
+![zipgen](/images/zipgen.png)
+
+7z:
+
+![7z](/images/7z.png)
+
+Zip:
+
+![zip](/images/zip.png)
+
+Results:
+
+![results](/images/ls.png)
 
 ## Sync ZipStreamWriter Example
 
